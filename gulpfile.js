@@ -72,7 +72,7 @@ var imageOptimizeTask = function(src, dest) {
 
 var optimizeHtmlTask = function(src, dest) {
   var assets = $.useref.assets({
-    searchPath: ['.tmp', 'app']
+    searchPath: ['.tmp', 'dist']
   });
 
   return gulp.src(src)
@@ -139,7 +139,12 @@ gulp.task('copy', function() {
     'app/bower_components/{webcomponentsjs,platinum-sw,sw-toolbox,promise-polyfill}/**/*'
   ]).pipe(gulp.dest(dist('bower_components')));
 
-  return merge(app, bower)
+  // Add components to .tmp dir so they can get concatenated
+  // when we vulcanize
+  var tmp = gulp.src(['app/bower_components/**/*'])
+    .pipe(gulp.dest('.tmp/bower_components'));
+
+  return merge(app, bower, tmp)
     .pipe($.size({
       title: 'copy'
     }));
@@ -171,6 +176,19 @@ gulp.task('vulcanize', function() {
     }))
     .pipe(gulp.dest(dist('elements')))
     .pipe($.size({title: 'vulcanize'}));
+});
+
+// Transpile all JS to ES5.
+gulp.task('js', function () {
+ return gulp.src(['app/**/*.{js,html}', '!app/bower_components/**/*'])
+   .pipe($.if('*.html', $.crisper({scriptInHead:false}))) // Extract JS from .html files
+   .pipe($.sourcemaps.init())
+   .pipe($.if('*.js', $.babel({
+     presets: ['es2015']
+   })))
+   .pipe($.sourcemaps.write())
+   .pipe(gulp.dest('.tmp/'))
+   .pipe(gulp.dest('dist/'));
 });
 
 // Generate config data for the <sw-precache-cache> element.
@@ -214,7 +232,7 @@ gulp.task('clean', function() {
 });
 
 // Watch files for changes & reload
-gulp.task('serve', ['styles'], function() {
+gulp.task('serve', ['styles', 'js'], function () {
   browserSync({
     port: 5000,
     notify: false,
@@ -237,9 +255,9 @@ gulp.task('serve', ['styles'], function() {
     }
   });
 
-  gulp.watch(['app/**/*.html', '!app/bower_components/**/*.html'], reload);
+  gulp.watch(['app/**/*.html', '!app/bower_components/**/*.html'], ['js', reload]);
   gulp.watch(['app/styles/**/*.css'], ['styles', reload]);
-  gulp.watch(['app/scripts/**/*.js'], reload);
+  gulp.watch(['app/scripts/**/*.js'], ['js', reload]);
   gulp.watch(['app/images/**/*'], reload);
 });
 
@@ -271,7 +289,7 @@ gulp.task('default', ['clean'], function(cb) {
   // Uncomment 'cache-config' if you are going to use service workers.
   runSequence(
     ['ensureFiles', 'copy', 'styles'],
-    ['images', 'fonts', 'html'],
+    ['images', 'fonts', 'html', 'js'],
     'vulcanize', // 'cache-config',
     cb);
 });
